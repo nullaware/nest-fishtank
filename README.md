@@ -23,6 +23,8 @@ open http://localhost:8765/preview.html
 | `debug` | off | Show FPS |
 | `reload` | off | Hard-reload every N hours |
 | `clock` | `12` | Clock style: `12`, `24`, or `off` |
+| `feed` | `20` | Feed every N minutes on the clock (`20` = :00, :20, :40), or `random` (every 10–40 min), or `off` |
+| `feednow` | off | Also feed a few seconds after loading |
 
 ## Hosting
 

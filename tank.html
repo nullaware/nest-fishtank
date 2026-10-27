@@ -26,6 +26,8 @@
  *   ?debug         show an FPS readout
  *   ?reload=6      hard-reload the page every N hours (default off)
  *   ?clock=24      clock style: 12 (default), 24, or off
+ *   ?feed=20       feed every N minutes on the clock (default 20: :00 :20 :40), or random, or off
+ *   ?feednow       also feed a few seconds after loading
  */
 (function () {
 'use strict';
@@ -41,6 +43,7 @@ var LITE = params.has('lite');
 var DEBUG = params.has('debug');
 var RELOAD_HOURS = num('reload', 0);
 var CLOCK = params.get('clock') || '12';
+var FEED = params.get('feed') || '20';
 
 // ---------- world ----------
 // Everything is laid out in "world units": the world is always 600 units tall
@@ -165,7 +168,7 @@ var SPECIES = {
   neon: {
     box: [-58, 56, -24, 22],
     beh: { cruise: 80, agility: 2.4, turnRate: 3.2, beat: 16, beatK: 3, arrive: 40, turnDist: 18,
-           burstChance: 0, pauseChance: 0, prefY: 260, yRange: 90, bottomK: 0.3 },
+           burstChance: 0, pauseChance: 0, prefY: 260, yRange: 90, bottomK: 0.3, appetite: 2 },
     draw: function (c, ph) {
       var bend = 1.2 * Math.sin(ph - 0.4);
       c.fillStyle = 'rgba(225,235,230,0.32)';
@@ -192,7 +195,7 @@ var SPECIES = {
   clown: {
     box: [-62, 56, -38, 36],
     beh: { cruise: 48, agility: 1.6, turnRate: 2.2, beat: 10, beatK: 2, arrive: 90, turnDist: 25,
-           burstChance: 0.15, pauseChance: 0.25, prefY: 400, yRange: 60, bottomK: 0.4 },
+           burstChance: 0.15, pauseChance: 0.25, prefY: 400, yRange: 60, bottomK: 0.4, appetite: 3 },
     draw: function (c, ph) {
       var bend = 1.4 * Math.sin(ph - 0.4), O = '#ff8a1e', K = '#160b04';
       c.lineWidth = 2; c.strokeStyle = K; c.fillStyle = O; c.lineJoin = 'round';
@@ -218,7 +221,7 @@ var SPECIES = {
   angel: {
     box: [-56, 44, -92, 94],
     beh: { cruise: 24, agility: 0.7, turnRate: 1.1, beat: 4.5, beatK: 1.5, arrive: 140, turnDist: 35,
-           burstChance: 0.05, pauseChance: 0.3, prefY: 250, yRange: 100, bottomK: 0.9 },
+           burstChance: 0.05, pauseChance: 0.3, prefY: 250, yRange: 100, bottomK: 0.9, appetite: 4 },
     draw: function (c, ph) {
       var bend = 0.9 * Math.sin(ph - 0.4), F = 'rgba(218,222,206,0.88)';
       var sw = 2.5 * Math.sin(ph - 1.2);
@@ -251,7 +254,7 @@ var SPECIES = {
   tang: {
     box: [-58, 56, -42, 42],
     beh: { cruise: 58, agility: 1.2, turnRate: 1.8, beat: 8, beatK: 2, arrive: 110, turnDist: 30,
-           burstChance: 0.2, pauseChance: 0.1, prefY: 250, yRange: 140, bottomK: 0.45 },
+           burstChance: 0.2, pauseChance: 0.1, prefY: 250, yRange: 140, bottomK: 0.45, appetite: 5 },
     draw: function (c, ph) {
       var bend = 1.1 * Math.sin(ph - 0.4), D = '#123a9c', K = '#070c1e';
       c.lineWidth = 1.5; c.strokeStyle = K; c.fillStyle = D; c.lineJoin = 'round';
@@ -280,7 +283,7 @@ function makeSwimmer(beh, size) {
     size: size, x: rand(120, WW - 120), y: 0, vx: 0, vy: 0, tx: 0, ty: 0, timer: 0,
     dir: Math.random() < 0.5 ? -1 : 1, turn: 0, pitch: 0, phase: rand(0, TAU),
     burst: 1, burstT: rand(2, 8), bobF: rand(0.3, 0.6), bobA: rand(1.5, 4), ph: rand(0, TAU),
-    school: null, ox: 0, oy: 0, offTimer: 0
+    school: null, ox: 0, oy: 0, offTimer: 0, eaten: 0, food: null, foodCheck: 0, chew: 0
   };
   for (var k in beh) o[k] = beh[k];
   o.cruise *= rand(0.85, 1.15);
@@ -318,8 +321,19 @@ function updateLeader(L, dt) {
 }
 
 function updateFish(f, dt) {
-  var tx, ty;
-  if (f.school) {
+  var tx, ty, fl = null;
+  var bob = Math.sin(t * f.bobF + f.ph) * f.bobA;
+  var feedBottom = GROUND - 6 - f.size * 0.22;
+  f.chew -= dt;
+  if (foodCount > 0 && f.eaten < f.appetite && f.chew <= 0) {
+    fl = f.food;
+    f.foodCheck -= dt;
+    if (!fl || !fl.on || f.foodCheck <= 0) { fl = f.food = nearestFlake(f, feedBottom); f.foodCheck = 0.6; }
+  }
+  if (fl) {
+    // Line the mouth up with the flake rather than the body centre.
+    tx = fl.x - f.dir * f.size * 0.42; ty = fl.y - bob;
+  } else if (f.school) {
     f.offTimer -= dt;
     if (f.offTimer <= 0) { f.ox = rand(-60, 60); f.oy = rand(-30, 30); f.offTimer = rand(2, 5); }
     tx = f.school.x + f.ox; ty = f.school.y + f.oy;
@@ -345,15 +359,21 @@ function updateFish(f, dt) {
     f.burstT = f.burst > 1 ? rand(0.8, 2) : rand(4, 12);
   }
 
-  var sp = f.cruise * f.burst * Math.min(1, dist / f.arrive);
-  var dvx = dx / dist * sp, dvy = dy / dist * sp * 0.55;
+  var sp = fl ? f.cruise * 1.7 * Math.min(1, dist / 30)
+              : f.cruise * f.burst * Math.min(1, dist / f.arrive);
+  var dvx = dx / dist * sp, dvy = dy / dist * sp * (fl ? 0.9 : 0.55);
   if (dvx * f.dir < 0) dvx = 0;
   dvx *= thrust;
-  var a = Math.min(1, dt * f.agility);
+  var a = Math.min(1, dt * f.agility * (fl ? 1.8 : 1));
   f.vx += (dvx - f.vx) * a;
   f.vy += (dvy - f.vy) * a * 0.8;
   f.x = clamp(f.x + f.vx * dt, 20, WW - 20);
-  f.y = clamp(f.y + f.vy * dt, TOP, f.bottom);
+  f.y = clamp(f.y + f.vy * dt, fl ? 28 : TOP, fl ? feedBottom : f.bottom);
+
+  if (fl) {
+    var mx = f.x + disp * f.size * 0.48 - fl.x, my = f.y + bob - fl.y, r = 6 + f.size * 0.08;
+    if (mx * mx + my * my < r * r) { fl.on = false; f.eaten++; f.food = null; f.chew = rand(1.2, 3); }
+  }
 
   var speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
   f.phase = (f.phase + dt * (f.beat + speed / f.size * f.beatK * 10)) % TAU;
@@ -725,6 +745,99 @@ function drawBubbles() {
   ctx.globalAlpha = 1;
 }
 
+// ---------- feeding (fixed pool) ----------
+// Flakes float briefly, sink with a wobble, then rest on the gravel and fade.
+var flakes = [], foodCount = 0, feedLeft = 0, feedX = 0, feedGap = 0, lastFeedMinute = -1, nextRandomFeed = 0;
+var FLAKE_COLS = ['#e8a33a', '#c8562a', '#d9c27a', '#a8432a', '#8a9a40'];
+for (var fi = 0; fi < 40; fi++) flakes.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, sink: 0, state: 0, timer: 0, s: 0, col: '', f: 0, ph: 0 });
+
+function startFeeding() {
+  if (feedLeft > 0 || foodCount > 0) return;
+  feedLeft = 24 + ((Math.random() * 8) | 0);
+  feedX = rand(WW * 0.2, WW * 0.8);
+  feedGap = 0;
+  for (var i = 0; i < fish.length; i++) { fish[i].eaten = 0; fish[i].food = null; }
+}
+
+function spawnFlake() {
+  for (var i = 0; i < flakes.length; i++) {
+    var fl = flakes[i];
+    if (!fl.on) {
+      fl.on = true; fl.state = 0; fl.timer = rand(0.5, 4);
+      fl.x = feedX + rand(-70, 70); fl.y = SURFACE + 3; fl.vx = rand(-4, 4); fl.vy = 0;
+      fl.sink = rand(9, 16); fl.s = rand(4, 6.5); fl.f = rand(1, 2.5); fl.ph = rand(0, TAU);
+      fl.col = FLAKE_COLS[(Math.random() * FLAKE_COLS.length) | 0];
+      return;
+    }
+  }
+}
+
+function nearestFlake(f, bottom) {
+  var best = null, bd = 1e12;
+  for (var i = 0; i < flakes.length; i++) {
+    var fl = flakes[i];
+    if (!fl.on || fl.y > bottom + f.size * 0.2) continue;
+    var dx = fl.x - f.x, dy = fl.y - f.y, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = fl; }
+  }
+  return best;
+}
+
+function updateFood(dt) {
+  if (feedLeft > 0) {
+    feedGap -= dt;
+    if (feedGap <= 0) { spawnFlake(); feedLeft--; feedGap = rand(0.12, 0.3); }
+  }
+  foodCount = 0;
+  for (var i = 0; i < flakes.length; i++) {
+    var fl = flakes[i];
+    if (!fl.on) continue;
+    foodCount++;
+    if (fl.state === 0) {
+      fl.timer -= dt;
+      fl.x += fl.vx * dt;
+      fl.y = SURFACE + 3 + Math.sin(t * 2 + fl.ph);
+      if (fl.timer <= 0) fl.state = 1;
+    } else if (fl.state === 1) {
+      fl.vy += (fl.sink - fl.vy) * Math.min(1, dt * 2);
+      fl.y += fl.vy * dt;
+      fl.vx *= 0.99;
+      fl.x += (fl.vx + Math.sin(t * fl.f + fl.ph) * 8) * dt;
+      var g = groundY(fl.x) - 1;
+      if (fl.y >= g) { fl.y = g; fl.state = 2; fl.timer = rand(25, 40); }
+    } else {
+      fl.timer -= dt;
+      if (fl.timer <= 0) fl.on = false;
+    }
+  }
+}
+
+function drawFlakes() {
+  for (var i = 0; i < flakes.length; i++) {
+    var fl = flakes[i];
+    if (!fl.on) continue;
+    ctx.globalAlpha = fl.state === 2 && fl.timer < 4 ? fl.timer / 4 : 1;
+    ctx.fillStyle = fl.col;
+    ctx.fillRect(fl.x - fl.s / 2, fl.y - fl.s * 0.35, fl.s, fl.s * 0.7);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// feed=20 feeds on the clock every 20 min (:00 :20 :40); feed=random every 10–40 min; feed=off.
+function checkFeedSchedule() {
+  if (FEED === 'off') return;
+  if (FEED === 'random') {
+    var now = Date.now();
+    if (!nextRandomFeed) nextRandomFeed = now + rand(10, 40) * 60000;
+    else if (now >= nextRandomFeed) { startFeeding(); nextRandomFeed = now + rand(10, 40) * 60000; }
+    return;
+  }
+  var every = parseFloat(FEED);
+  if (!(every > 0)) return;
+  var m = Math.floor(currentHour() * 60 + 1e-6);
+  if (m % every === 0 && m !== lastFeedMinute) { lastFeedMinute = m; startFeeding(); }
+}
+
 // ---------- light ----------
 function buildRays() {
   rays.length = 0;
@@ -878,6 +991,7 @@ function update(dt) {
   t += dt;
   daylight += (daylightTarget - daylight) * Math.min(1, dt * 0.5);
   for (var i = 0; i < schools.length; i++) updateLeader(schools[i], dt);
+  updateFood(dt);
   for (i = 0; i < fish.length; i++) updateFish(fish[i], dt);
   updateBubbles(dt);
 }
@@ -889,6 +1003,7 @@ function render() {
   ctx.setTransform(S, 0, 0, S, 0, 0);
   if (!LITE) { drawCaustics(); ctx.setTransform(S, 0, 0, S, 0, 0); }
   for (var i = 0; i < backPlants.length; i++) drawPlant(backPlants[i]);
+  drawFlakes();
   for (i = 0; i < fish.length; i++) drawFish(fish[i]);
   ctx.setTransform(S, 0, 0, S, 0, 0);
   for (i = 0; i < frontPlants.length; i++) drawPlant(frontPlants[i]);
@@ -953,7 +1068,8 @@ setup();
 updateClock();
 daylight = daylightTarget;
 setInterval(updateClock, 30000);
-setInterval(updateClockFace, 1000);
+setInterval(function () { updateClockFace(); checkFeedSchedule(); }, 1000);
+if (params.has('feednow')) setTimeout(startFeeding, 4000);
 if (RELOAD_HOURS > 0) setTimeout(function () { location.reload(); }, RELOAD_HOURS * 3600000);
 requestAnimationFrame(loop);
 })();
