@@ -41,7 +41,7 @@ catt -d "My Nest Hub" stop
 
 ## Keep-alive (macOS launchd)
 
-`keepalive.py` runs every 2 minutes. Between 7am and 10pm Sydney time it casts the tank if the Hub is idle. It leaves other casts (music, video) alone. Outside those hours it stops the tank.
+`keepalive.py` runs every 2 minutes. Between 7am and 10pm Sydney time it casts the tank once the Hub has been idle for 5 minutes (`--grace`), so it won't jump in while you're using the touchscreen. It leaves other casts (music, video) alone. Outside those hours it stops the tank.
 
 ```sh
 ./install-launchd.sh                                  # defaults: "My Nest Hub", 7–22
