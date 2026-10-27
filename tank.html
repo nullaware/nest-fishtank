@@ -367,6 +367,10 @@ function updateFish(f, dt) {
   var a = Math.min(1, dt * f.agility * (fl ? 1.8 : 1));
   f.vx += (dvx - f.vx) * a;
   f.vy += (dvy - f.vy) * a * 0.8;
+  if (turtle.on) {   // drift up or down out of the visitor's way
+    var rx = f.x - turtle.x, ry = f.y - turtle.y, R = TURTLE_SIZE * 0.75;
+    if (rx * rx + ry * ry < R * R) f.vy += (ry >= 0 ? 1 : -1) * 60 * dt;
+  }
   f.x = clamp(f.x + f.vx * dt, 20, WW - 20);
   f.y = clamp(f.y + f.vy * dt, fl ? 28 : TOP, fl ? feedBottom : f.bottom);
 
@@ -414,6 +418,129 @@ function createFish() {
     } else pickTarget(f);
     fish.push(f);
   }
+}
+
+// ---------- rare visitor ----------
+// A sea turtle cruises across now and then (on average every ~2 hours).
+// Deliberately undocumented. ?calib forces one 5 s after load, for testing.
+var TURTLE_SIZE = 160, TURTLE_BOX = [-64, 78, -38, 76];
+var turtle = { on: false, x: 0, y: 0, y0: 0, dir: 1, phase: 0, pitch: 0, age: 0, bubbleT: 0, frames: [], ox: 0, oy: 0 };
+
+function shellPath(c) {
+  c.beginPath(); c.moveTo(-46, 4);
+  c.bezierCurveTo(-40, -30, 28, -38, 46, 2);
+  c.bezierCurveTo(20, 8, -20, 8, -46, 4);
+  c.closePath();
+}
+function turtleFrontFlipper(c) {
+  c.beginPath(); c.moveTo(6, -4);
+  c.bezierCurveTo(14, 16, 2, 42, -16, 60);
+  c.bezierCurveTo(-12, 38, -12, 16, -8, 0);
+  c.closePath();
+}
+function turtleRearFlipper(c) {
+  c.beginPath(); c.moveTo(2, -3);
+  c.bezierCurveTo(-6, 6, -18, 14, -26, 13);
+  c.bezierCurveTo(-16, 6, -6, 3, 2, 5);
+  c.closePath();
+}
+function dot(c, x, y, rx, ry, rot) { c.beginPath(); c.ellipse(x, y, rx, ry, rot, 0, TAU); c.fill(); }
+
+function drawTurtle(c, ph) {
+  var skin = '#8b8d58', dark = '#5e6138', i;
+  // far-side flippers, in shadow
+  c.fillStyle = '#4f5230';
+  c.save(); c.translate(20, 6); c.rotate(0.3 + 0.6 * Math.sin(ph + 0.6)); turtleFrontFlipper(c); c.fill(); c.restore();
+  c.save(); c.translate(-30, 8); c.rotate(0.3 * Math.sin(ph + 2.1)); turtleRearFlipper(c); c.fill(); c.restore();
+  // neck and head
+  c.fillStyle = skin;
+  dot(c, 44, 6, 16, 9, 0.1);
+  dot(c, 60, 4, 14, 10, 0.05);
+  c.fillStyle = dark;
+  dot(c, 52, 0, 3, 2, 0); dot(c, 57, -4, 2.5, 1.8, 0); dot(c, 63, 8, 2.4, 1.7, 0); dot(c, 47, 9, 3, 2, 0);
+  c.strokeStyle = 'rgba(40,40,20,0.6)'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(66, 8); c.quadraticCurveTo(70, 8, 73, 4); c.stroke();
+  eye(c, 64, 0, 2.8, '#3a3418');
+  // plastron
+  c.fillStyle = '#d2c48a';
+  c.beginPath(); c.moveTo(-42, 4); c.bezierCurveTo(-28, 17, 26, 17, 42, 4); c.closePath(); c.fill();
+  // shell
+  shellPath(c);
+  c.fillStyle = vgrad(c, -30, 8, ['#7d8a44', '#5a6630', '#3e461f']);
+  c.fill();
+  c.save(); c.clip();
+  c.strokeStyle = 'rgba(30,34,14,0.55)'; c.lineWidth = 1.6; c.fillStyle = 'rgba(190,200,120,0.2)';
+  for (i = -2; i <= 2; i++) {
+    c.beginPath(); c.ellipse(i * 16, -17 + Math.abs(i) * 3, 7.5, 6.5, 0, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(i * 16 + 8, -4 + Math.abs(i + 0.5) * 1.5, 7.5, 5, 0, 0, TAU); c.fill(); c.stroke();
+  }
+  c.beginPath();
+  for (i = -40; i <= 40; i += 8) { c.moveTo(i, 1); c.lineTo(i + 2, 8); }
+  c.stroke();
+  c.fillStyle = 'rgba(255,255,230,0.14)';
+  dot(c, -6, -22, 22, 5, -0.1);
+  c.restore();
+  shellPath(c); outline(c, 0.35);
+  // near-side flippers
+  c.fillStyle = skin;
+  c.save(); c.translate(-32, 9); c.rotate(0.3 * Math.sin(ph + 1.5)); turtleRearFlipper(c); c.fill(); c.restore();
+  c.save(); c.translate(24, 9); c.rotate(0.3 + 0.6 * Math.sin(ph));
+  turtleFrontFlipper(c); c.fill(); outline(c, 0.2);
+  c.fillStyle = dark;
+  dot(c, 0, 16, 3, 2, 1.2); dot(c, -5, 32, 2.6, 1.7, 1.2); dot(c, -10, 46, 2, 1.3, 1.2);
+  c.restore();
+}
+
+function buildTurtleSprites() {
+  var k = TURTLE_SIZE / 100 * S, b = TURTLE_BOX;
+  turtle.ox = -b[0] * k + 2; turtle.oy = -b[2] * k + 2;
+  var w = (b[1] - b[0]) * k + 4, h = (b[3] - b[2]) * k + 4;
+  turtle.frames.length = 0;
+  for (var j = 0; j < FRAMES; j++) {
+    var cv = makeCanvas(w, h), c = cv.getContext('2d');
+    c.setTransform(k, 0, 0, k, turtle.ox, turtle.oy);
+    c.lineJoin = 'round';
+    drawTurtle(c, j / FRAMES * TAU);
+    turtle.frames.push(cv);
+  }
+}
+
+function startTurtle() {
+  if (turtle.on) return;
+  turtle.on = true;
+  turtle.dir = Math.random() < 0.5 ? 1 : -1;
+  turtle.x = turtle.dir > 0 ? -TURTLE_SIZE : WW + TURTLE_SIZE;
+  turtle.y0 = rand(170, 300); turtle.y = turtle.y0;
+  turtle.age = 0; turtle.pitch = 0; turtle.bubbleT = rand(2, 4);
+}
+
+function checkVisitor() {
+  if (!turtle.on && Math.random() < 1 / 7200) startTurtle();
+}
+
+function updateTurtle(dt) {
+  if (!turtle.on) return;
+  turtle.age += dt;
+  turtle.phase = (turtle.phase + dt * 2.6) % TAU;
+  // Glides between power strokes of the front flippers.
+  var stroke = Math.max(0, Math.sin(turtle.phase - 0.4));
+  turtle.x += turtle.dir * (20 + 16 * stroke) * dt;
+  turtle.y = turtle.y0 + 28 * Math.sin(turtle.age * 0.3);
+  turtle.pitch = Math.atan2(8.4 * Math.cos(turtle.age * 0.3), 28);
+  turtle.bubbleT -= dt;
+  if (turtle.bubbleT <= 0) {
+    spawnBubble(turtle.x + turtle.dir * TURTLE_SIZE * 0.7, turtle.y - TURTLE_SIZE * 0.02, rand(1.5, 3));
+    turtle.bubbleT = rand(2.5, 5);
+  }
+  if ((turtle.dir > 0 && turtle.x > WW + TURTLE_SIZE) || (turtle.dir < 0 && turtle.x < -TURTLE_SIZE)) turtle.on = false;
+}
+
+function drawTurtleVisitor() {
+  if (!turtle.on) return;
+  var frame = turtle.frames[((turtle.phase / TAU * FRAMES) | 0) % FRAMES];
+  var p = turtle.dir > 0 ? turtle.pitch : -turtle.pitch, cs = Math.cos(p), sn = Math.sin(p);
+  ctx.setTransform(cs * turtle.dir, sn * turtle.dir, -sn, cs, S * turtle.x, S * turtle.y);
+  ctx.drawImage(frame, -turtle.ox, -turtle.oy);
 }
 
 // ---------- pre-rendered layers ----------
@@ -992,6 +1119,7 @@ function update(dt) {
   daylight += (daylightTarget - daylight) * Math.min(1, dt * 0.5);
   for (var i = 0; i < schools.length; i++) updateLeader(schools[i], dt);
   updateFood(dt);
+  updateTurtle(dt);
   for (i = 0; i < fish.length; i++) updateFish(fish[i], dt);
   updateBubbles(dt);
 }
@@ -1005,6 +1133,7 @@ function render() {
   for (var i = 0; i < backPlants.length; i++) drawPlant(backPlants[i]);
   drawFlakes();
   for (i = 0; i < fish.length; i++) drawFish(fish[i]);
+  drawTurtleVisitor();
   ctx.setTransform(S, 0, 0, S, 0, 0);
   for (i = 0; i < frontPlants.length; i++) drawPlant(frontPlants[i]);
   drawBubbles();
@@ -1019,14 +1148,16 @@ function render() {
   }
 }
 
-var interval = 1000 / FPS, last = 0;
+var interval = 1000 / FPS, last = 0, prevFrame = 0;
 function loop(now) {
   requestAnimationFrame(loop);
-  if (!last) last = now;
+  if (!last) last = prevFrame = now;
   var el = now - last;
   if (el < interval - 2) return;
-  last = now - (el % interval);
-  update(Math.min(el / 1000, 0.1));
+  last = now - (el % interval);   // keeps the cap's cadence steady
+  var dt = (now - prevFrame) / 1000;   // real time since the last rendered frame
+  prevFrame = now;
+  update(Math.min(dt, 0.1));
   render();
   if (DEBUG) {
     fpsFrames++;
@@ -1052,6 +1183,7 @@ function setup() {
   for (i = 0; i < bubbles.length; i++) bubbles[i].on = false;
   buildBackground();
   buildFishSprites();
+  buildTurtleSprites();
   buildPlants();
   buildRays();
   updateClockFace(true);
@@ -1068,8 +1200,9 @@ setup();
 updateClock();
 daylight = daylightTarget;
 setInterval(updateClock, 30000);
-setInterval(function () { updateClockFace(); checkFeedSchedule(); }, 1000);
+setInterval(function () { updateClockFace(); checkFeedSchedule(); checkVisitor(); }, 1000);
 if (params.has('feednow')) setTimeout(startFeeding, 4000);
+if (params.has('calib')) setTimeout(startTurtle, 5000);
 if (RELOAD_HOURS > 0) setTimeout(function () { location.reload(); }, RELOAD_HOURS * 3600000);
 requestAnimationFrame(loop);
 })();
