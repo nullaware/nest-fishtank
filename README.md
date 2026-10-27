@@ -22,6 +22,7 @@ open http://localhost:8765/preview.html
 | `lite` | off | Skip light rays and caustics (for slow devices) |
 | `debug` | off | Show FPS |
 | `reload` | off | Hard-reload every N hours |
+| `clock` | `12` | Clock style: `12`, `24`, or `off` |
 
 ## Hosting
 

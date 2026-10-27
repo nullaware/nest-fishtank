@@ -25,6 +25,7 @@
  *   ?lite          skip light rays and caustics
  *   ?debug         show an FPS readout
  *   ?reload=6      hard-reload the page every N hours (default off)
+ *   ?clock=24      clock style: 12 (default), 24, or off
  */
 (function () {
 'use strict';
@@ -39,6 +40,7 @@ var TZ = params.get('tz') || 'Australia/Sydney';
 var LITE = params.has('lite');
 var DEBUG = params.has('debug');
 var RELOAD_HOURS = num('reload', 0);
+var CLOCK = params.get('clock') || '12';
 
 // ---------- world ----------
 // Everything is laid out in "world units": the world is always 600 units tall
@@ -803,6 +805,57 @@ function updateClock() {
   warmth = Math.max(0, 1 - Math.abs(h - 7) / 1.5) + Math.max(0, 1 - Math.abs(h - 19) / 1.5);
 }
 
+// ---------- clock (re-rendered only when the minute changes) ----------
+var clockCanvas = null, clockKey = '', timeFmt = null, dateFmt = null;
+try {
+  timeFmt = new Intl.DateTimeFormat('en-AU', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: CLOCK !== '24' });
+  dateFmt = new Intl.DateTimeFormat('en-AU', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' });
+} catch (e) {
+  timeFmt = new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', hour12: CLOCK !== '24' });
+  dateFmt = new Intl.DateTimeFormat('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+var CLOCK_FONT = '"Google Sans", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+function updateClockFace(force) {
+  if (CLOCK === 'off') return;
+  var now = new Date(), parts = timeFmt.formatToParts(now), hm = '', ampm = '';
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i];
+    if (p.type === 'dayPeriod') ampm = p.value.replace(/\./g, '').toLowerCase();
+    else if (p.type === 'hour' || p.type === 'minute' || (p.type === 'literal' && p.value.indexOf(':') >= 0)) hm += p.value;
+  }
+  var date = dateFmt.format(now).replace(',', '');
+  var key = hm + ampm + date + S;
+  if (!force && key === clockKey) return;
+  clockKey = key;
+
+  var cw = 340, ch = 150;
+  clockCanvas = clockCanvas || makeCanvas(1, 1);
+  clockCanvas.width = Math.ceil(cw * S); clockCanvas.height = Math.ceil(ch * S);
+  var c = clockCanvas.getContext('2d');
+  c.setTransform(S, 0, 0, S, 0, 0);
+  c.shadowColor = 'rgba(0,18,32,0.7)'; c.shadowBlur = 10 * S; c.shadowOffsetY = 2 * S;
+  c.fillStyle = 'rgba(238,248,255,0.92)';
+  c.textAlign = 'right'; c.textBaseline = 'alphabetic';
+  var right = cw - 12, x = right;
+  if (ampm) {
+    c.font = '500 30px ' + CLOCK_FONT;
+    c.fillText(ampm, right, 92);
+    x = right - c.measureText(ampm).width - 8;
+  }
+  c.font = '500 96px ' + CLOCK_FONT;
+  c.fillText(hm, x, 92);
+  c.font = '400 24px ' + CLOCK_FONT;
+  c.fillStyle = 'rgba(225,240,250,0.8)';
+  c.fillText(date, right, 128);
+}
+
+function drawClock() {
+  if (!clockCanvas) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(clockCanvas, W - clockCanvas.width - 18 * S, 14 * S);
+}
+
 function drawTint() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (daylight < 0.995) {
@@ -841,6 +894,7 @@ function render() {
   for (i = 0; i < frontPlants.length; i++) drawPlant(frontPlants[i]);
   drawBubbles();
   drawSurface();
+  drawClock();
   drawTint();
   if (DEBUG) {
     ctx.font = (14 * S) + 'px monospace';
@@ -885,6 +939,7 @@ function setup() {
   buildFishSprites();
   buildPlants();
   buildRays();
+  updateClockFace(true);
 }
 
 var resizeTimer = 0;
@@ -898,6 +953,7 @@ setup();
 updateClock();
 daylight = daylightTarget;
 setInterval(updateClock, 30000);
+setInterval(updateClockFace, 1000);
 if (RELOAD_HOURS > 0) setTimeout(function () { location.reload(); }, RELOAD_HOURS * 3600000);
 requestAnimationFrame(loop);
 })();
