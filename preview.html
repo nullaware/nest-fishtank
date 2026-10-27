@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tank Preview</title>
+<style>
+  body { margin: 0; padding: 16px; background: #1b1d20; color: #c9ccd1; font: 14px system-ui, sans-serif;
+         display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  iframe { border: 0; background: #000; border-radius: 6px; box-shadow: 0 0 0 10px #0d0e10, 0 12px 40px #000; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <label>Screen
+    <select id="size">
+      <option value="1024x600">Nest Hub, 1024×600</option>
+      <option value="1280x800">Nest Hub Max, 1280×800</option>
+    </select>
+  </label>
+  <label>Hour <input id="hour" type="range" min="0" max="23.75" step="0.25"> <span id="hv">live (Sydney)</span></label>
+  <button id="live">Use live time</button>
+  <label><input id="dpr1" type="checkbox"> Render at 1x (like the Hub)</label>
+  <label><input id="debug" type="checkbox" checked> FPS</label>
+</div>
+<iframe id="f" width="1024" height="600"></iframe>
+<script>
+  var f = document.getElementById('f'), size = document.getElementById('size'), hour = document.getElementById('hour'),
+      hv = document.getElementById('hv'), debug = document.getElementById('debug'), dpr1 = document.getElementById('dpr1'),
+      pinned = false;
+  function load() {
+    var wh = size.value.split('x'), q = [];
+    f.width = wh[0]; f.height = wh[1];
+    if (pinned) q.push('hour=' + hour.value);
+    if (debug.checked) q.push('debug');
+    if (dpr1.checked) q.push('dpr=1');
+    f.src = 'tank.html' + (q.length ? '?' + q.join('&') : '');
+    hv.textContent = pinned ? (Math.floor(hour.value) + ':' + ('0' + Math.round(hour.value % 1 * 60)).slice(-2)) : 'live (Sydney)';
+  }
+  hour.oninput = function () { pinned = true; load(); };
+  document.getElementById('live').onclick = function () { pinned = false; load(); };
+  size.onchange = debug.onchange = dpr1.onchange = load;
+  load();
+</script>
+</body>
+</html>
